@@ -1,0 +1,5 @@
+tagret/
+.git/
+.env
+Dockerfile
+docker-compose.yaml
