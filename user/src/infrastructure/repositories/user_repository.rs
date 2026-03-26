@@ -26,7 +26,7 @@ impl UserRepository for PgUserRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(result.map(|row, |User {
+        Ok(result.map(|row|User {
             id: row.id,
             email: row.email,
             password_hash: row.password_hash,
@@ -44,7 +44,7 @@ impl UserRepository for PgUserRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(result.map(|row, |User {
+        Ok(result.map(|row|User {
             id: row.id,
             email: row.email,
             password_hash: row.password_hash,

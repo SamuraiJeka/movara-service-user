@@ -4,13 +4,13 @@ use crate::domain::repository::UserRepository;
 use crate::domain::user::User;
 use crate::infrastructure::hash_password::hash_password;
 
-
-pub struct UserService<R: UserRepository> {
-    repo: Arc<R>,
+#[derive(Clone)]
+pub struct UserService {
+    repo: Arc<dyn UserRepository>,
 }
 
-impl<R: UserRepository> UserService<R> {
-    pub fn new(repo: Arc<R>) -> Self {
+impl UserService {
+    pub fn new(repo: Arc<dyn UserRepository>) -> Self {
         Self { repo }
     }
 
