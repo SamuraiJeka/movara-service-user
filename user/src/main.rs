@@ -1,41 +1,64 @@
-use std::{env, sync::Arc};
-use axum::{Router, routing::{get, post}};
+use std::sync::Arc;
 
+use axum::routing::get;
+use axum::Router;
+use tracing_subscriber::EnvFilter;
 
-use crate::infrastructure::{db::create_pool, repositories::user_repository::PgUserRepository};
 use crate::application::user_service::UserService;
-use crate::transport::http::handlers as user_handlers;
+use crate::config::Config;
+use crate::infrastructure::db::create_pool;
+use crate::infrastructure::password_hasher::Argon2PasswordHasher;
+use crate::infrastructure::repositories::user_repository::PgUserRepository;
+use crate::transport::http::handlers;
 
-mod infrastructure;
 mod application;
-mod transport;
+mod config;
 mod domain;
-
+mod infrastructure;
+mod transport;
 
 #[tokio::main]
 async fn main() {
-    let service_port = env::var("SERVICE_PORT")
-        .expect("SERVICE_PORT not exist");
+    dotenvy::dotenv().ok();
 
-    let service_address = format!("0.0.0.0:{}", service_port);
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
 
-    let db = create_pool().await;
+    let config = Config::from_env().unwrap_or_else(|e| {
+        eprintln!("configuration error: {e}");
+        std::process::exit(1);
+    });
 
-    let repo = PgUserRepository{pool: db};
+    let addr = format!("0.0.0.0:{}", config.service_port);
+    tracing::info!(%addr, "starting user service");
 
-    let service = UserService::new(Arc::new(repo));
+    let pool = create_pool(&config.database_url)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!(error = %e, "database connection failed");
+            std::process::exit(1);
+        });
+
+    let repo = PgUserRepository { pool };
+    let hasher = Arc::new(Argon2PasswordHasher);
+    let service = UserService::new(Arc::new(repo), hasher);
 
     let app = Router::new()
-        .route("/register", post(user_handlers::register))
-        .route("/get_by_id", get(user_handlers::get_user_by_id))
-        .route("/get_by_email", get(user_handlers::get_user_by_email))
+        .route("/users/{user_id}", get(handlers::get_user_by_id))
+        .route("/users", get(handlers::get_user_by_email).post(handlers::register))
         .with_state(service);
 
-     let listener = tokio::net::TcpListener::bind(&service_address)
+    let listener = tokio::net::TcpListener::bind(&addr)
         .await
-        .unwrap();
+        .unwrap_or_else(|e| {
+            tracing::error!(error = %e, "failed to bind listener");
+            std::process::exit(1);
+        });
 
-    axum::serve(listener, app)
-        .await
-        .unwrap();
+    tracing::info!("listening");
+    if let Err(e) = axum::serve(listener, app).await {
+        tracing::error!(error = %e, "server error");
+        std::process::exit(1);
+    }
 }
